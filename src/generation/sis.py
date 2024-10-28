@@ -98,6 +98,10 @@ class DeterministicSIS():
         # update dynamic edges
         for i, j in itertools.combinations(self.G.nodes, 2):
             affinity = sigmoid(self.get_edge_afinity_scores(i, j))
+            if self.G.nodes[i]["state"].startswith("Q-"):
+                affinity *= (1-self.G.nodes[i]["int"])
+            if self.G.nodes[j]["state"].startswith("Q-"):
+                affinity *= (1-self.G.nodes[j]["int"])
             # print(f"edge: {i}-{j}, affinity: {affinity}, {np.dot(self.G.nodes[i]["x"], self.G.nodes[j]["x"])}")
             if self.G.has_edge(i, j):
                 if affinity <= self.delta: self.G.remove_edge(i, j)
