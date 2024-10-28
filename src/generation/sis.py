@@ -12,8 +12,8 @@ class DeterministicSIS():
         '''
             inputs: 
                 n: number of nodes
-                p: dynamic node feature dimension
-                gamma: initial infected proportion
+                p: dynamic node latent feature dimension
+                gamma: initial infection proportion
                 d: maximum possible number of infected days
                 tau: infection pressure threshold
                 delta: edge generation threshold
