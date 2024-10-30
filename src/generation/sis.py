@@ -36,11 +36,6 @@ class DeterministicSIS():
 
         # time counter
         self.t = 0
-
-        # dynamic feature (x) update function
-        self.W = np.random.uniform(low=-1, high=1, size=(p,p))
-        # self.W = np.random.normal(loc=-1, scale=1, size=(p,p))
-        # self.W = self.W / self.W.sum(axis=1)[:, np.newaxis]
         
         # initialize graph
         self.G = nx.Graph()
