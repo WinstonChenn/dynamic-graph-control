@@ -23,7 +23,7 @@ def main(args):
         rec_alpha=args.rec_alpha, rec_beta=args.rec_beta, int_alpha=args.int_alpha, int_beta=args.int_beta)
     
     # plot initial graph
-    pos = nx.random_layout(SIS.G)
+    pos = nx.spring_layout(SIS.G)
     for i in range(20):
         viz_utils.plot_SIS_graph(SIS, os.path.join(figure_dir, f"graph_t{i}.png"), pos=pos)
         viz_utils.plot_affinity_distribution(SIS, os.path.join(figure_dir, f"affinity_t{i}.png"))

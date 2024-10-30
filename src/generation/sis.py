@@ -118,9 +118,6 @@ class DeterministicSIS():
     def get_edge_afinity_scores(self, i, j):
             x_i, x_j = self.G.nodes[i]["x"], self.G.nodes[j]["x"]
             return np.dot(x_i, x_j)/(np.linalg.norm(x_i)*np.linalg.norm(x_j))
-            # return np.dot(x_i, x_j)/np.sqrt(self.p)
-    
-    # /np.sqrt(self.p)
 
     def get_all_affinity_scores(self):
         affinity_scores = []

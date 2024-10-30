@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 def sigmoid(x):
   return 1 / (1 + np.exp(-x))
 
-def plot_SIS_graph(SIS, path, pos=None):
+def plot_SIS_graph(SIS, path=None, pos=None, fig=None, ax=None):
     node_color = []
     for i in SIS.G.nodes:
         if SIS.G.nodes[i]["state"] == "S":
@@ -15,8 +15,9 @@ def plot_SIS_graph(SIS, path, pos=None):
             node_color.append("red")
         elif SIS.G.nodes[i]["state"].startswith("Q"):
             node_color.append("yellow")
-    fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-    nx.draw_networkx(SIS.G, node_color=node_color, pos=pos, ax=ax)
+    if fig is None and ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+    res = nx.draw_networkx(SIS.G, node_color=node_color, pos=pos, ax=ax)
     
     # compute graph summaries
     num_sus = SIS.get_num_nodes_in_state("S")
@@ -27,8 +28,9 @@ def plot_SIS_graph(SIS, path, pos=None):
     fig.suptitle(f"time={SIS.t}\nnodes: #S={num_sus}, #inf={num_inf}, #int={num_int}"+
                  f"\nedges: #connection={num_edge}/{num_comb}")
     fig.tight_layout()
-    fig.savefig(path)
+    if path: fig.savefig(path)
     plt.close()
+    return res
 
 def plot_affinity_distribution(SIS, path):
     affinities = sigmoid(np.array(SIS.get_all_affinity_scores()))
