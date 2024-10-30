@@ -58,7 +58,7 @@ class DeterministicSIS():
         # initialize node edges
         for i, j in itertools.combinations(self.G.nodes, 2):
             affinity = sigmoid(self.get_edge_afinity_scores(i, j))
-            if affinity > delta: self.G.add_edge(i, j)
+            if affinity > self.delta: self.G.add_edge(i, j)
     
     def intervene(self, nodes):
         for i in nodes:
@@ -111,8 +111,8 @@ class DeterministicSIS():
         return rec_times
     
     def get_edge_afinity_scores(self, i, j):
-            x_i, x_j = self.G.nodes[i]["x"], self.G.nodes[j]["x"]
-            return np.dot(x_i, x_j)/(np.linalg.norm(x_i)*np.linalg.norm(x_j))
+        x_i, x_j = self.G.nodes[i]["x"], self.G.nodes[j]["x"]
+        return np.dot(x_i, x_j)/(np.linalg.norm(x_i)*np.linalg.norm(x_j))
 
     def get_all_affinity_scores(self):
         affinity_scores = []
