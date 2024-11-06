@@ -6,6 +6,22 @@ import matplotlib.pyplot as plt
 def sigmoid(x):
   return 1 / (1 + np.exp(-x))
 
+def smooth(signal, window_size=10):
+    """Convolve two 1D arrays with 'same' mode and no boundary effects."""
+
+    # Calculate padding needed to avoid boundary effects
+    kernel = [1/window_size] * window_size
+    kernel_size = len(kernel)
+    padding = kernel_size // 2
+
+    # Pad the signal with the mean value to minimize edge effects
+    padded_signal = np.pad(signal, padding, mode='reflect') 
+
+    # Perform the convolution
+    result = np.convolve(padded_signal, kernel, mode='valid')
+
+    return result
+
 def plot_SIS_graph(SIS, path=None, pos=None, fig=None, ax=None):
     node_color = []
     for i in SIS.G.nodes:

@@ -163,3 +163,5 @@ cython_debug/
 
 /figures
 *.mp4
+/checkpoints
+/data
