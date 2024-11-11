@@ -3,21 +3,20 @@ from copy import deepcopy
 from tqdm import tqdm
 import numpy as np
 import networkx as nx
-from sklearn.metrics import roc_auc_score
 import matplotlib.pyplot as plt
 import torch
-from torch_geometric.loader import DataLoader
+from torch_geometric.loader import DataLoader, NeighborLoader
 from torch_geometric.data import Data
+from torch_geometric.utils import negative_sampling, sort_edge_index
 from utils import train_utils, viz_utils, eval_utils
 from generation.sis import DeterministicSIS, get_node_feature_matrix, \
     get_node_label_vector, get_edge_index, get_edge_label, get_unintervened_node_index
-from models.StaticGNN import NodeGCN, EdgeGCN
+from models.StaticGNN import NodeGCN, NodeSAGE
 
 def nx2pyg(G, device="cpu"):
     edge_index_torch = torch.from_numpy(np.array(get_edge_index(G)).astype(int).T).to(device)
     x_node_torch = torch.from_numpy(get_node_feature_matrix(G).astype(np.float32)).to(device)
     return Data(x=x_node_torch, edge_index=edge_index_torch)
-
 
 def main(args):
     ### Set random seed ###
@@ -35,7 +34,7 @@ def main(args):
     os.makedirs(data_dir, exist_ok=True)
     model_str = os.path.join(f"model={args.model_name}", 
         f"#epochs={args.epochs}_batch={args.batch_size}_lr={args.lr}_l2={args.l2}")
-    cp_dir = os.path.join(args.cp_dir, data_str, model_str)
+    cp_dir = os.path.join(args.cp_dir, data_str, "NodePrediction", model_str)
     os.makedirs(cp_dir, exist_ok=True)
     policy_cp_dir = os.path.join(cp_dir, "policy", f"#int={args.num_int}")
     os.makedirs(policy_cp_dir, exist_ok=True)
@@ -47,7 +46,7 @@ def main(args):
     os.makedirs(figure_dir, exist_ok=True)
     data_figure_dir = os.path.join(figure_dir, "data")
     os.makedirs(data_figure_dir, exist_ok=True)
-    model_figure_dir = os.path.join(figure_dir, "model", model_str)
+    model_figure_dir = os.path.join(figure_dir, "model", "NodePrediction", model_str)
     os.makedirs(model_figure_dir, exist_ok=True)
     
     
@@ -75,13 +74,11 @@ def main(args):
     data_list = []
     for i in tqdm(range(len(graphs)-1)):
         G_curr, G_next = graphs[i], graphs[i+1]
-        edge_index_torch = torch.from_numpy(np.array(get_edge_index(G_curr)).astype(int).T).to(device)
-        x_node_torch = torch.from_numpy(get_node_feature_matrix(G_curr).astype(np.float32)).to(device)
-        y_node_torch = torch.from_numpy(np.array(get_node_label_vector(G_next)).reshape(-1, 1).astype(np.float32)).to(device)
-        y_edge_torch = torch.from_numpy(np.array(get_edge_label(G_next)).reshape(-1, 1).astype(np.float32)).to(device)
-        data_list.append(Data(x=x_node_torch, edge_index=edge_index_torch, y_node=y_node_torch, y_edge=y_edge_torch))
-
-    # np.random.shuffle(data_list)
+        edge_index = torch.from_numpy(np.array(get_edge_index(G_curr)).astype(int).T).to(device)
+        x = torch.from_numpy(get_node_feature_matrix(G_curr).astype(np.float32)).to(device)
+        y = torch.from_numpy(np.array(get_node_label_vector(G_next)).reshape(-1, 1).astype(np.float32)).to(device)
+        data_list.append(Data(x=x, edge_index=edge_index, y=y))
+        
     train_data, val_data = data_list[:args.num_train], data_list[args.num_train:args.num_train+args.num_val]
     test_data = data_list[args.num_train+args.num_val:]
     train_dataloader = DataLoader(train_data, batch_size=args.batch_size)
@@ -90,64 +87,34 @@ def main(args):
 
     ### Training GNN ###
     if args.model_name == "GCN":
-        node_model = NodeGCN(num_node_features=data_list[0].x.shape[1]).to(device)
-        # edge_model = EdgeGCN(num_node_features=data_list[0].x.shape[1]).to(device)
-    
-    # train node prediction GNN
-    node_model_path = os.path.join(cp_dir, "model.pt")
-    if not os.path.isfile(node_model_path) or args.overwrite_model:
-        node_model, node_loss_dict, node_eval_dict = train_utils.train_torch_model(node_model, lr=args.lr, 
+        model = NodeGCN(num_node_features=data_list[0].x.shape[1]).to(device)
+    elif args.model_name == "SAGE":
+        model = NodeSAGE(num_node_features=data_list[0].x.shape[1]).to(device)
+    model_path = os.path.join(cp_dir, "model.pt")
+    if not os.path.isfile(model_path) or args.overwrite_model:
+        model, loss_dict, eval_dict = train_utils.train_torch_model(model, lr=args.lr, 
             l2=args.l2, epochs=args.epochs, train_dataloader=train_dataloader, val_dataloader=val_dataloader,
-            test_dataloader=test_dataloader, verbose=True, label="y_node")
-        torch.save({"state_dict": node_model.state_dict(), "loss_dict": node_loss_dict, 
-                    "eval_dict": node_eval_dict}, node_model_path)
+            test_dataloader=test_dataloader, verbose=True, edge_pred=False, x_label="x", y_label="y", edge_index_label="edge_index")
+        torch.save({"state_dict": model.state_dict(), "loss_dict": loss_dict, "eval_dict": eval_dict}, model_path)
     else:
-        cp = torch.load(node_model_path, weights_only=False)
-        node_model.load_state_dict(cp["state_dict"]) 
-        node_loss_dict, node_eval_dict = cp["loss_dict"], cp["eval_dict"]
-    # train edge prediction GNN
-    # edge_model = train_utils.train_torch_model(edge_model, lr=args.lr, l2=args.l2, epochs=args.epochs, 
-    #     train_dataloader=train_dataloader, val_dataloader=val_dataloader, verbose=True, label="y_edge")
-    # breakpoint()
+        cp = torch.load(model_path, weights_only=False, map_location=device)
+        model.load_state_dict(cp["state_dict"]) 
+        loss_dict, eval_dict = cp["loss_dict"], cp["eval_dict"]
 
+    model.eval()
     # plot loss and eval
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-    axes[0].plot(node_loss_dict["train"], label="train")
-    axes[0].plot(node_loss_dict["val"], label="val")
-    axes[0].plot(node_loss_dict["test"], label="test")
-    axes[1].plot(node_eval_dict["train"], label="train")
-    axes[1].plot(node_eval_dict["val"], label="val")
-    axes[1].plot(node_eval_dict["test"], label="test")
-    axes[0].set_title("Loss")
-    axes[1].set_title("AUROC")
-    axes[0].legend()
-    axes[1].legend()
-    fig.suptitle(f"seed={args.seed}")
-    fig.tight_layout()
-    fig.savefig(os.path.join(model_figure_dir, "node_loss_eval_curve.png"))
+    fig = eval_utils.plot_learning_curves(loss_dict, eval_dict)
+    fig.savefig(os.path.join(model_figure_dir, "loss_eval_curve.png"))
     
     # plot auroc by time
-    aurocs = []
-    for data in data_list:
-        node_pred = node_model(data).detach().cpu().numpy()
-        node_label = data.y_node.detach().cpu().numpy()
-        curr_auroc = roc_auc_score(node_label, node_pred)
-        aurocs.append(curr_auroc)
-    fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-    ax.plot(aurocs, label="AUROC")
-    ax.plot(viz_utils.smooth(aurocs, window_size=10), label="Smoothed AUROC")
-    ax.axvline(x=args.num_train, color='y', linestyle='--', label="train cutoff")
-    ax.axvline(x=args.num_train+args.num_val, color='r', linestyle='--', label="val cutoff")
-    ax.legend()
-    ax.set_ylabel("Node state prediction AUROC")
-    ax.set_xlabel("Timestep")
-    fig.tight_layout()
-    fig.savefig(os.path.join(model_figure_dir, "node_auroc_by_time.png"))
-    
+    fig = eval_utils.plot_temporal_auroc(model=model, data_list=data_list, 
+        train_time=args.num_train, val_time=args.num_train+args.num_val, y_label="y", x_label="x")
+    fig.savefig(os.path.join(model_figure_dir, "auroc_by_time.png"))
+
     ## Evaluate policy ###
     def node_model_policy(G, num_int):
         G_data = nx2pyg(G, device)
-        node_pred = node_model(G_data).detach().cpu().numpy().reshape(-1)
+        node_pred = model(G_data).detach().cpu().numpy().reshape(-1)
         unint_idx = np.array(get_unintervened_node_index(G))
         int_idx = unint_idx[np.argsort(node_pred[unint_idx])[::-1][:num_int]]
         return int_idx
@@ -157,14 +124,13 @@ def main(args):
         int_idx = np.random.choice(unint_idx, size=num_int)
         return int_idx
 
-    
-    SIS = DeterministicSIS(seed=args.seed, num_nodes=args.num_nodes, lat_dim=args.lat_dim, 
-        edge_thresh=args.edge_thresh, int_param=args.int_param, init_inf_prop=args.init_inf_prop, 
-        inf_thresh=args.inf_thresh, max_inf_days=args.max_inf_days, inf_param=args.inf_param,
-        sus_param=args.sus_param, rec_param=args.rec_param)
 
     model_rewards_list, random_rewards_list = [], []
-    for i in tqdm(range(101)):
+    for i in tqdm(range(100)):
+        SIS = DeterministicSIS(seed=args.seed+i, num_nodes=args.num_nodes, lat_dim=args.lat_dim, 
+            edge_thresh=args.edge_thresh, int_param=args.int_param, init_inf_prop=args.init_inf_prop, 
+            inf_thresh=args.inf_thresh, max_inf_days=args.max_inf_days, inf_param=args.inf_param,
+            sus_param=args.sus_param, rec_param=args.rec_param)
         model_reward_path = os.path.join(model_policy_cp_dir, f"rep={i}.npy")
         if not os.path.isfile(model_reward_path):
             model_rewards = eval_utils.evaluate_policy(node_model_policy, environment=deepcopy(SIS), 
@@ -181,8 +147,8 @@ def main(args):
         else:
             random_rewards = np.load(random_reward_path)
         random_rewards_list.append(random_rewards)
-    model_rewards, random_rewards = np.stack(model_rewards_list), np.stack(random_rewards_list)
 
+    model_rewards, random_rewards = np.stack(model_rewards_list), np.stack(random_rewards_list)
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
     ax.plot(random_rewards.mean(axis=0), label="random policy", color="tab:blue")
     ax.fill_between(x=range(random_rewards.shape[1]), y1=np.quantile(random_rewards, 0.25, axis=0), 
@@ -196,7 +162,7 @@ def main(args):
     ax.set_ylim(0, 1)
     ax.set_xlim(-1, model_rewards.shape[1])
     fig.tight_layout()
-    fig.savefig(os.path.join(model_figure_dir, "policy_eval.png"))
+    fig.savefig(os.path.join(model_figure_dir, f"policy_eval_#int={args.num_int}.png"))
 
 
 if __name__ == "__main__":
@@ -228,14 +194,14 @@ if __name__ == "__main__":
     parser.add_argument("--num_val", type=int, default=100, help="number of testing graphs")
     parser.add_argument("--num_test", type=int, default=100, help="number of testing graphs")
     # modeling args
-    parser.add_argument("--model_name", type=str, choices=["GCN"], default="GCN")
+    parser.add_argument("--model_name", type=str, choices=["GCN", "SAGE", "GIN", "GAT"], default="GCN")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--l2", type=float, default=5e-4)
     parser.add_argument("--overwrite_model", action="store_true")
     # intervention policy args
-    parser.add_argument("--num_int", type=str, default=1, help="number of intervention every timestep")
+    parser.add_argument("--num_int", type=int, default=1, help="number of intervention every timestep")
     args = parser.parse_args()
 
     main(args)
