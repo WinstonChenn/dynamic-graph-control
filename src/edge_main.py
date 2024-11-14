@@ -104,7 +104,8 @@ def main(args):
         cp = torch.load(model_path, weights_only=False, map_location=device)
         model.load_state_dict(cp["state_dict"]) 
         loss_dict, eval_dict = cp["loss_dict"], cp["eval_dict"]
-
+    
+    model.eval()
     # plot loss and eval
     fig = eval_utils.plot_learning_curves(loss_dict, eval_dict)
     fig.suptitle(f"{args.model_name} Edge Prediction")
@@ -115,7 +116,7 @@ def main(args):
     fig = eval_utils.plot_temporal_eval(model=model, data_list=data_list[args.num_train*num_samples:], eval_edge=True,
         val_time=args.num_val, y_label="y", x_label="x", metric="auroc",
         edge_index_label="edge_index", decode_index_label="decode_index", y_axis_label="Next Graph Edge Prediction AUROC")
-    fig.suptitle(f"{args.model_name} Edge Prediction")
+    fig.suptitle(f"{args.model_name} Edge Prediction AUROC")
     fig.tight_layout()
     fig.savefig(os.path.join(model_figure_dir, "auroc_by_time.png"))
 
@@ -123,7 +124,7 @@ def main(args):
     fig = eval_utils.plot_temporal_eval(model=model, data_list=data_list[args.num_train*num_samples:], eval_edge=True,
         val_time=args.num_val, y_label="y", x_label="x", metric="precision",
         edge_index_label="edge_index", decode_index_label="decode_index", y_axis_label="Next Graph Edge Prediction Precision")
-    fig.suptitle(f"{args.model_name} Edge Prediction")
+    fig.suptitle(f"{args.model_name} Edge Prediction Precision")
     fig.tight_layout()
     fig.savefig(os.path.join(model_figure_dir, "precision_by_time.png"))
 
@@ -131,7 +132,7 @@ def main(args):
     fig = eval_utils.plot_temporal_eval(model=model, data_list=data_list[args.num_train*num_samples:], eval_edge=True,
         val_time=args.num_val, y_label="y", x_label="x", metric="recall",
         edge_index_label="edge_index", decode_index_label="decode_index", y_axis_label="Next Graph Edge Prediction Recall")
-    fig.suptitle(f"{args.model_name} Edge Prediction")
+    fig.suptitle(f"{args.model_name} Edge Prediction Recall Recall")
     fig.tight_layout()
     fig.savefig(os.path.join(model_figure_dir, "recall_by_time.png"))
 
@@ -139,7 +140,7 @@ def main(args):
     fig = eval_utils.plot_temporal_eval(model=model, data_list=data_list[args.num_train*num_samples:], eval_edge=True,
         val_time=args.num_val, y_label="y", x_label="x", metric="f1",
         edge_index_label="edge_index", decode_index_label="decode_index", y_axis_label="Next Graph Edge Prediction F1")
-    fig.suptitle(f"{args.model_name} Edge Prediction")
+    fig.suptitle(f"{args.model_name} Edge Prediction F1")
     fig.tight_layout()
     fig.savefig(os.path.join(model_figure_dir, "f1_by_time.png"))
 
