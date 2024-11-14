@@ -1,10 +1,11 @@
 from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
-import torch
+import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
-from utils import viz_utils, train_utils
+from utils import viz_utils
 from torch_geometric.loader import DataLoader
+from sklearn.metrics import roc_auc_score, accuracy_score, f1_score, precision_score, recall_score
 
 def evaluate_policy(policy, environment, num_int=3, num_times=100, verbose=True):
     model_rewards = []
@@ -31,17 +32,50 @@ def plot_learning_curves(loss_dict, eval_dict):
     fig.tight_layout()
     return fig
 
-def plot_temporal_auroc(model, data_list, train_time, val_time, 
-        y_label, x_label="x", eval_edge=False):
-    _, aurocs = train_utils.eval_model(model, DataLoader(data_list), 
-        y_label=y_label, x_label=x_label, eval_edge=eval_edge)
+def eval_model(model, dataloader, y_label="y", x_label="x", edge_index_label="edge_index", 
+               eval_edge=False, decode_index_label=None, metric="auroc", threshold=0.5):
+    if eval_edge: assert decode_index_label is not None
+    loss_list, eval_list = [], []
+    for data in dataloader:
+        if eval_edge:
+            score = model(data, x_label=x_label, edge_index_label=edge_index_label, 
+                         decode_index=data[decode_index_label])
+        else:
+            score = model(data, x_label)
+        target = data[y_label]
+        loss = F.binary_cross_entropy(score, target)
+        loss_list.append(loss.item())
+        score_np = score.detach().cpu().numpy()
+        pred_np = (score_np>threshold).astype(int)
+        target_np = target.detach().cpu().numpy()
+        if metric == "auroc":
+            eval_list.append(roc_auc_score(target_np, score_np))
+        elif metric == "accuracy":
+            eval_list.append(accuracy_score(target_np, pred_np))
+        elif metric == "f1":
+            eval_list.append(f1_score(target_np, pred_np))
+        elif metric == "precision":
+            eval_list.append(precision_score(target_np, pred_np))
+        elif metric == "recall":
+            eval_list.append(recall_score(target_np, pred_np))
+    return loss_list, eval_list
+
+def plot_temporal_eval(model, data_list, train_time=None, val_time=None, 
+        y_label="y", x_label="x", edge_index_label="edge_index", 
+        eval_edge=False, decode_index_label=None, y_axis_label="", metric="auroc"):
+    if eval_edge: assert decode_index_label is not None
+    _, evals = eval_model(model, data_list, 
+        y_label=y_label, x_label=x_label, edge_index_label=edge_index_label, 
+        eval_edge=eval_edge, decode_index_label=decode_index_label, metric=metric)
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-    ax.plot(aurocs, label="AUROC")
-    ax.plot(viz_utils.smooth(aurocs, window_size=10), label="Smoothed AUROC")
-    ax.axvline(x=train_time, color='y', linestyle='--', label="train cutoff")
-    ax.axvline(x=val_time, color='r', linestyle='--', label="val cutoff")
+    ax.plot(evals, label=metric)
+    ax.plot(viz_utils.smooth(evals, window_size=10), label=f"Smoothed {metric}")
+    if train_time is not None:
+        ax.axvline(x=train_time, color='y', linestyle='--', label="train cutoff")
+    if val_time is not None:
+        ax.axvline(x=val_time, color='r', linestyle='--', label="val cutoff")
     ax.legend()
-    ax.set_ylabel("Node state prediction AUROC")
+    ax.set_ylabel(y_axis_label)
     ax.set_xlabel("Timestep")
     fig.tight_layout()
     return fig

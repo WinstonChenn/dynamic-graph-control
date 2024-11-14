@@ -8,7 +8,7 @@ def sigmoid(x):
 
 class DeterministicSIS(): 
     def __init__(self, num_nodes, seed=42,
-        lat_dim=10, edge_thresh=0.55, int_param=(1,1),
+        lat_dim=2, edge_thresh=0.55, int_param=(1,1),
         init_inf_prop=0.1, inf_thresh=0.2, max_inf_days=10,
         inf_param=(1,1), sus_param=(1,1), rec_param=(1,1)):
         '''
@@ -57,8 +57,10 @@ class DeterministicSIS():
             sus = np.random.beta(*self.sus_param)
             rec = np.random.beta(*self.rec_param)
             int = np.random.beta(*self.int_param)
-            x = np.random.uniform(low=-np.pi*2, high=np.pi*2, size=self.lat_dim)
-            self.G.add_node(i, state="S", inf=inf, sus=sus, rec=rec, int=int, x=x)
+            num_lat = np.random.randint(low=2, high=6)
+            lats = np.random.normal(loc=0, scale=1, size=(num_lat, self.lat_dim))
+            self.G.add_node(i, state="S", inf=inf, sus=sus, rec=rec, int=int, 
+                            lats=lats, curr_lat=lats[0])
             sus_list.append(sus)
         # initialize node state
         infected_idx = np.argsort(sus_list)[::-1][:round(self.num_nodes*self.init_inf_prop)]
@@ -97,8 +99,7 @@ class DeterministicSIS():
         
         # update dynamic features
         for i in self.G.nodes:
-            new_x = np.pi*2*np.sin(self.G.nodes[i]["x"])
-            self.G.nodes[i]["x"] = new_x
+            self.G.nodes[i]["curr_lat"] = self.G.nodes[i]["lats"][self.t%self.G.nodes[i]["lats"].shape[0]]
 
         # update dynamic edges
         for i, j in itertools.combinations(self.G.nodes, 2):
@@ -120,15 +121,7 @@ class DeterministicSIS():
         return rec_times
     
     def get_edge_afinity_scores(self, i, j):
-        x_i, x_j = self.G.nodes[i]["x"], self.G.nodes[j]["x"]
-        return np.dot(x_i, x_j)/(np.linalg.norm(x_i)*np.linalg.norm(x_j))
-
-    def get_all_affinity_scores(self):
-        affinity_scores = []
-        for i, j in itertools.combinations(self.G.nodes, 2):
-            affinity = self.get_edge_afinity_scores(i, j)
-            affinity_scores.append(affinity)
-        return affinity_scores
+        return get_edge_afinity_scores(self.G, i, j)
 
     def get_num_nodes_in_state(self, state):
         count = 0
@@ -136,7 +129,26 @@ class DeterministicSIS():
             if self.G.nodes[i]['state'].startswith(state):
                 count += 1
         return count
+
+def get_edge_afinity_scores(G, i, j):
+    lat_i = G.nodes[i]["curr_lat"]
+    lat_j = G.nodes[j]["curr_lat"]
+    return np.dot(lat_i, lat_j) / np.sqrt(len(lat_i))
+
+def get_all_affinity_scores(G):
+        affinity_scores = []
+        for i, j in itertools.combinations(G.nodes, 2):
+            affinity = get_edge_afinity_scores(G, i, j)
+            affinity_scores.append(affinity)
+        return affinity_scores
     
+def get_num_nodes_in_state(G, state):
+    count = 0
+    for i in G.nodes:
+        if G.nodes[i]['state'].startswith(state):
+            count += 1
+    return count
+
 def get_unintervened_node_index(G):
     idx = []
     for i in G.nodes:
@@ -159,6 +171,12 @@ def get_node_feature_matrix(G):
         features.append(np.array(get_node_feature(G, i)))
     return np.stack(features)
 
+def get_node_latent_feature_matrix(G):
+    features = []
+    for i in G.nodes:
+        features.append(np.array(G.nodes[i]["x"]))
+    return np.stack(features)
+
 def get_node_label_vector(G):
     labels = []
     for i in G.nodes:
@@ -173,12 +191,12 @@ def get_edge_index(G):
     edge_index += [(e[1], e[0]) for e in edge_index] 
     return edge_index
 
-def get_edge_label(G):
-    labels = []
-    for i, j in itertools.combinations(G.nodes, 2):
-        if G.has_edge(i, j): labels.append(1)
-        else: labels.append(0)
-    return labels
+def get_decode_index_label(G):
+    decode_index, labels = [], []
+    for i, j in itertools.permutations(G.nodes, 2):
+        labels.append(int(G.has_edge(i, j)))
+        decode_index.append((i, j))
+    return decode_index, labels
 
 def get_edge_feature_matrix(G):
     features = []
@@ -186,5 +204,4 @@ def get_edge_feature_matrix(G):
         features.append(np.array(get_node_feature(G, i) + 
             get_node_feature(G, j)))
     return np.stack(features)
-
         

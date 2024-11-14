@@ -46,23 +46,24 @@ class EdgeGCN(torch.nn.Module):
         super().__init__()
         self.conv1 = GCNConv(num_node_features, hidden_dim)
         self.conv2 = GCNConv(hidden_dim, hidden_dim)
+        self.cos = nn.CosineSimilarity(dim=1, eps=1e-6)
         
-    def forward(self, data, x_label="x", edge_index_label="edge_index_curr", decode_index=None):
+    def forward(self, data, x_label="x", edge_index_label="edge_index", decode_index=None):
         x, edge_index = data[x_label], data[edge_index_label]
         x = self.conv1(x, edge_index)
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
         # x = self.conv2(x, edge_index)
         if decode_index is not None:
-            x = (x[decode_index[0, :]] * x[decode_index[1, :]]).sum(axis=1)
+            x = self.cos(x[decode_index[0, :]], x[decode_index[1, :]])
         return torch.sigmoid(x)
     
 
 class NodeSAGE(torch.nn.Module):
     def __init__(self, num_node_features, hidden_dim=16):
         super().__init__()
-        self.conv1 = SAGEConv(num_node_features, hidden_dim, project=True, aggr="max")
-        self.conv2 = SAGEConv(hidden_dim, 1, project=True, aggr="max")
+        self.conv1 = SAGEConv(num_node_features, hidden_dim, project=True)
+        self.conv2 = SAGEConv(hidden_dim, 1, project=True)
 
     def forward(self, data, x_label="x", edge_index_label="edge_index"):
         x, edge_index = data[x_label], data[edge_index_label]
@@ -75,20 +76,17 @@ class NodeSAGE(torch.nn.Module):
 class EdgeSAGE(torch.nn.Module):
     def __init__(self, num_node_features, hidden_dim=16):
         super().__init__()
-        self.conv1 = SAGEConv(num_node_features, hidden_dim, aggr="mean")
-        self.conv2 = SAGEConv(hidden_dim, hidden_dim, aggr="mean")
-        self.conv3 = SAGEConv(hidden_dim, hidden_dim, aggr="mean")
-        self.mlp = MLP(num_node_features, hidden_sizes=[hidden_dim, hidden_dim], output_size=hidden_dim)
-        self.mlp2 = MLP(hidden_dim, hidden_sizes=[hidden_dim, hidden_dim], output_size=1)
-        self.weight = nn.Parameter(torch.empty(hidden_dim))
+        self.conv1 = SAGEConv(num_node_features, hidden_dim)
+        self.conv2 = SAGEConv(hidden_dim, hidden_dim)
+        self.cos = nn.CosineSimilarity(dim=1, eps=1e-6)
         
-    def forward(self, data, decode_index=None, x_label="x", edge_index_label="edge_index_curr"):
+    def forward(self, data, decode_index=None, x_label="x", edge_index_label="edge_index"):
         x, edge_index = data[x_label], data[edge_index_label]
         x = self.conv1(x, edge_index)
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
         x = self.conv2(x, edge_index)
         if decode_index is not None:
-            x = (x[decode_index[0, :]] * x[decode_index[1, :]]).sum(axis=1)
+            x = self.cos(x[decode_index[0, :]], x[decode_index[1, :]])
             
         return torch.sigmoid(x)
