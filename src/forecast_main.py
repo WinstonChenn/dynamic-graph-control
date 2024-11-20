@@ -1,26 +1,15 @@
-import argparse, random, os, itertools
+import argparse, random, os
 from copy import deepcopy
 import torch
 import numpy as np
 import networkx as nx
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from torch_geometric.data import Data
 from sklearn.metrics import roc_auc_score
 from models.StaticGNN import NodeGCN, NodeSAGE, EdgeGCN, EdgeSAGE
 from generation.sis import DeterministicSIS, get_edge_index, get_node_pred_feature_matrix, \
     get_all_node_attribute
-from utils import eval_utils
-
-def nx2pyg(G, device="cpu", pred_edge=False):
-    edge_index_torch = torch.from_numpy(np.array(get_edge_index(G)).astype(int).T).to(device)
-    if pred_edge:
-        x_node_torch = torch.from_numpy(np.identity(len(G.nodes)).astype(np.float32)).to(device)
-        decode_index = torch.from_numpy(np.array(list(itertools.permutations(G.nodes, 2))).astype(int).T).to(device)
-        return Data(x=x_node_torch, edge_index=edge_index_torch, decode_index=decode_index)
-    else:
-        x_node_torch = torch.from_numpy(get_node_pred_feature_matrix(G).astype(np.float32)).to(device)
-        return Data(x=x_node_torch, edge_index=edge_index_torch)
+from utils import eval_utils, infer_utils
 
 def main(args):
     ### Set random seed ###
@@ -48,7 +37,7 @@ def main(args):
         f"_maxDays={args.eval_max_inf_days}" \
         f"_infParam={args.eval_inf_param}_susParam={args.eval_sus_param}" \
         f"_recParam={args.eval_rec_param}_intParam={args.eval_int_param}"
-    forecast_str = os.path.join(train_data_str, "Forcast", model_str, eval_data_node_str, 
+    forecast_str = os.path.join(train_data_str, "Forecast", model_str, eval_data_node_str, 
                                 f"#eval={args.num_eval_times}_#forecast={args.num_forecast_times}")
     forecast_cp_dir = os.path.join(args.cp_dir, forecast_str)
     os.makedirs(forecast_cp_dir, exist_ok=True)
@@ -67,36 +56,6 @@ def main(args):
     node_model.load_state_dict(node_cp["state_dict"]) 
     edge_cp = torch.load(edge_model_path, weights_only=False, map_location=device)
     edge_model.load_state_dict(edge_cp["state_dict"]) 
-    def forecast(G, num_times=2):
-        node_scores_list = []
-        G_curr = deepcopy(G)
-        for _ in range(num_times):
-            # predict next node labels
-            G_node_data = nx2pyg(G_curr, device, pred_edge=False)
-            node_scores = node_model(G_node_data).detach().cpu().numpy().reshape(-1)
-            node_scores_list.append(node_scores)
-            node_pred = np.round(node_scores)
-            # predict next edge labels
-            G_edge_data = nx2pyg(G_curr, device, pred_edge=True)
-            edge_pred = np.round(edge_model(G_edge_data, decode_index=G_edge_data.decode_index).detach().cpu().numpy().reshape(-1))
-            edge_list = G_edge_data.decode_index.detach().cpu().numpy().astype(int)[:, edge_pred==1].T
-            # create next predicted graph
-            G_next = deepcopy(G_curr)
-            G_next.graph["t"] = G_next.graph["t"] + 1
-            G_next.clear_edges()
-            for edge in edge_list: 
-                G_next.add_edge(*edge)
-            for i in range(len(node_pred)):
-                if node_pred[i] == 0:
-                    G_next.nodes[i]["state"] = "S"
-                else:
-                    if G_curr.nodes[i]["state"] == "S":
-                        G_next.nodes[i]["state"] = f"I-{G_next.graph["t"]}"
-                    elif G_curr.nodes[i]["state"].startswith("I") or G_curr.nodes[i]["state"].startswith("Q"):
-                        G_next.nodes[i]["state"] = G_curr.nodes[i]["state"]
-                    else: raise Exception()
-            G_curr = deepcopy(G_next)
-        return np.stack(node_scores_list)
 
     ### Evaluate forecasting performance ###
     SIS = DeterministicSIS(seed=args.seed, num_nodes=args.num_nodes, lat_dim=args.lat_dim, 
@@ -107,8 +66,9 @@ def main(args):
     for t in tqdm(range(args.num_eval_times)):
         # forecast
         curr_forecast_path = os.path.join(forecast_cp_dir, f"time={t}.npy")
-        if not os.path.isfile(curr_forecast_path):
-            curr_forecast = forecast(SIS.G, num_times=args.num_forecast_times)
+        if not os.path.isfile(curr_forecast_path) or args.overwrite:
+            curr_forecast, _ = infer_utils.forecast(SIS.G, node_model=node_model, edge_model=edge_model, 
+                device=device, num_times=args.num_forecast_times)
             curr_aurocs = []
             # evaluate forecast
             curr_SIS = deepcopy(SIS)
