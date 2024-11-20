@@ -19,10 +19,13 @@ def main(args):
 
     ### Setup directories ###
     data_str = os.path.join(f"#nodes={args.num_nodes}", 
-        f"latDim={args.lat_dim}_edgeThresh={args.edge_thresh}_intParam={args.int_param}", 
-        f"initProp={args.init_inf_prop}_infThresh={args.max_inf_days}_infParam={args.inf_param}" \
-        f"_susParam={args.sus_param}_recParam={args.rec_param}", 
-        f"#train={args.num_train}_#val={args.num_val}_#test={args.num_test}", f"seed={args.seed}")
+        f"latDim={args.lat_dim}_edgeThresh={args.edge_thresh}", 
+        f"initProp={args.init_inf_prop}_infThresh={args.inf_thresh}" \
+        f"_maxDays={args.max_inf_days}" \
+        f"_infParam={args.inf_param}_susParam={args.sus_param}" \
+        f"_recParam={args.rec_param}_intParam={args.int_param}", 
+        f"#train={args.num_train}_#val={args.num_val}_#test={args.num_test}", 
+        f"seed={args.seed}")
     data_dir = os.path.join(args.data_dir, data_str)
     os.makedirs(data_dir, exist_ok=True)
     model_str = os.path.join(f"model={args.model_name}", 
@@ -189,17 +192,16 @@ if __name__ == "__main__":
     parser.add_argument("--cp_dir", type=str, default="../checkpoints")
     parser.add_argument("--figure_dir", type=str, default="../figures")
     parser.add_argument("--seed", type=int, default=0, help="random seed")
-    # basic data args
-    parser.add_argument("--num_nodes", type=int, default=30, help="number of nodes")
     # edge generation args
+    parser.add_argument("--num_nodes", type=int, default=30, help="number of nodes")
     parser.add_argument("--lat_dim", type=int, default=30, help="dynamic node latent feature dimension")
     parser.add_argument("--edge_thresh", type=float, default=0.55, help="edge generation threshold")
-    parser.add_argument("--int_param", type=float, nargs=2, default=None, 
-                        help="Beta distribution parameter for intervenablness")
     # node generation args
     parser.add_argument("--init_inf_prop", type=float, default=0.1, help="initial infection proportion")
     parser.add_argument("--inf_thresh", type=float, default=0.3, help="infection pressure threshold")
     parser.add_argument("--max_inf_days", type=int, default=10, help="maximum possible number of infected days")
+    parser.add_argument("--int_param", type=float, nargs=2, default=None, 
+                        help="Beta distribution parameter for intervenablness")
     parser.add_argument("--inf_param", type=float, nargs=2, default=[1.0, 1.0], 
                         help="Beta distribution parameter for infectiousnes")
     parser.add_argument("--sus_param", type=float, nargs=2, default=[1.0, 1.0], 

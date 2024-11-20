@@ -3,7 +3,7 @@ import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
 from matplotlib import animation
-from generation.sis import get_num_nodes_in_state, get_all_affinity_scores
+from generation.sis import get_nodes_in_state
 
 def sigmoid(x):
   return 1 / (1 + np.exp(-x))
@@ -38,12 +38,12 @@ def plot_SIS_graph(G, path=None, pos=None, fig=None, ax=None):
     res = nx.draw_networkx(G, node_color=node_color, pos=pos, ax=ax)
     
     # compute graph summaries
-    num_sus = get_num_nodes_in_state(G, "S")
-    num_inf = get_num_nodes_in_state(G, "I")
-    num_int = get_num_nodes_in_state(G, "Q")
+    num_sus = len(get_nodes_in_state(G, "S"))
+    num_inf = len(get_nodes_in_state(G, "I"))
+    num_int = len(get_nodes_in_state(G, "Q"))
     num_edge = G.number_of_edges()
     num_comb = len(list(itertools.combinations(G.nodes, 2)))
-    fig.suptitle(f"nodes: #S={num_sus}, #inf={num_inf}, #int={num_int}"+
+    fig.suptitle(f"T={G.graph["t"]}, nodes: #S={num_sus}, #inf={num_inf}, #int={num_int}"+
                  f"\nedges: #connection={num_edge}/{num_comb}")
     fig.tight_layout()
     if path: fig.savefig(path)
@@ -51,12 +51,15 @@ def plot_SIS_graph(G, path=None, pos=None, fig=None, ax=None):
     return res
 
 def plot_affinity_distribution(G, path=None, fig=None, ax=None):
-    affinities = sigmoid(np.array(get_all_affinity_scores(G)))
+    affinities = G.graph["aff_scores"]
     if fig is None and ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(7, 5))
     ax.hist(affinities)
+    fig.suptitle(f"T={G.graph["t"]}")
+    fig.tight_layout()
     if path is not None:
         fig.savefig(path)
+    plt.close()
     return ax
 
 def animate_graphs(graphs):

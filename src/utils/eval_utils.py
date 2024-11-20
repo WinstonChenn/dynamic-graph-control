@@ -2,10 +2,9 @@ from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
-from sklearn.metrics import roc_auc_score
 from utils import viz_utils
-from torch_geometric.loader import DataLoader
 from sklearn.metrics import roc_auc_score, accuracy_score, f1_score, precision_score, recall_score
+from generation.sis import get_nodes_in_state
 
 def evaluate_policy(policy, environment, num_int=3, num_times=100, verbose=True):
     model_rewards = []
@@ -13,22 +12,28 @@ def evaluate_policy(policy, environment, num_int=3, num_times=100, verbose=True)
         int_idx = policy(environment.G, num_int)
         environment.update()
         environment.intervene(int_idx)
-        reward = environment.get_num_nodes_in_state("S") / len(environment.G.nodes)
+        reward = len(get_nodes_in_state(environment.G, "S")) / len(environment.G.nodes)
         model_rewards.append(reward)
     return np.array(model_rewards)
 
-def plot_learning_curves(loss_dict, eval_dict):
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-    axes[0].plot(loss_dict["train"], label="train")
-    axes[0].plot(loss_dict["val"], label="val")
-    axes[0].plot(loss_dict["test"], label="test")
-    axes[1].plot(eval_dict["train"], label="train")
-    axes[1].plot(eval_dict["val"], label="val")
-    axes[1].plot(eval_dict["test"], label="test")
+def plot_learning_curves(loss_dict, eval_dict, log=False, axes=None, fig=None):
+    if axes is None or fig is None:
+        fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    axes[0].plot(loss_dict["train"], label="train", alpha=0.75)
+    axes[0].plot(loss_dict["val"], label="val", alpha=0.75)
+    axes[0].plot(loss_dict["test"], label="test", alpha=0.75)
+    axes[1].plot(eval_dict["train"], label="train", alpha=0.75)
+    axes[1].plot(eval_dict["val"], label="val", alpha=0.75)
+    axes[1].plot(eval_dict["test"], label="test", alpha=0.75)
     axes[0].set_title("Loss")
     axes[1].set_title("AUROC")
     axes[0].legend()
     axes[1].legend()
+    axes[0].set_xlabel("Number of Training Epochs")
+    axes[1].set_xlabel("Number of Training Epochs")
+    if log:
+        axes[0].set_yscale("log")
+        axes[1].set_yscale("log")
     fig.tight_layout()
     return fig
 
@@ -79,3 +84,10 @@ def plot_temporal_eval(model, data_list, train_time=None, val_time=None,
     ax.set_xlabel("Timestep")
     fig.tight_layout()
     return fig
+
+def confidence_interval(rewards, level=0.95):
+    means = np.mean(rewards, axis=0)
+    ci = level*np.std(rewards, axis=0)/np.sqrt(len(rewards))
+    lower = means - ci
+    higher = means + ci
+    return lower, higher

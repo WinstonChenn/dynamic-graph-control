@@ -60,7 +60,7 @@ class EdgeGCN(torch.nn.Module):
     
 
 class NodeSAGE(torch.nn.Module):
-    def __init__(self, num_node_features, hidden_dim=16):
+    def __init__(self, num_node_features, hidden_dim=128):
         super().__init__()
         self.conv1 = SAGEConv(num_node_features, hidden_dim, project=True)
         self.conv2 = SAGEConv(hidden_dim, 1, project=True)
@@ -74,7 +74,7 @@ class NodeSAGE(torch.nn.Module):
         return torch.sigmoid(x) 
     
 class EdgeSAGE(torch.nn.Module):
-    def __init__(self, num_node_features, hidden_dim=16):
+    def __init__(self, num_node_features, hidden_dim=128):
         super().__init__()
         self.conv1 = SAGEConv(num_node_features, hidden_dim)
         self.conv2 = SAGEConv(hidden_dim, hidden_dim)
