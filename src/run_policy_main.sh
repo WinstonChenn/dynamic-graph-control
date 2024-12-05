@@ -10,6 +10,6 @@ do
         --l2 5e-4 --patience 10 --delta 1e-4 \
         --eval_init_inf_prop 0.1 --eval_inf_thresh 0.3 --eval_max_inf_days 10 \
         --eval_inf_param 1.0 1.0 --eval_sus_param 1.0 1.0 --eval_rec_param 1.0 1.0 \
-        --num_times 100 --num_int 2
+        --num_times 200 --num_int 1
 done
 

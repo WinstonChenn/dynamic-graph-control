@@ -8,7 +8,7 @@ do
         --num_train 100 --num_val 100 --num_test 100 \
         --model_name SAGE --batch 32 --epochs 1000 --lr 1e-3 \
         --l2 5e-4 --patience 10 --delta 1e-4 \
-        --eval_init_inf_prop 0.1 --eval_inf_thresh 0.3 --eval_max_inf_days 10 \
+        --eval_init_inf_prop 0.1 --eval_inf_thresh 0.3 --eval_max_inf_days 9 \
         --eval_inf_param 1.0 1.0 --eval_sus_param 1.0 1.0 --eval_rec_param 1.0 1.0 \
-        --num_eval_times 100 --num_forecast_times 50 --overwrite
+        --num_eval_times 100 --num_forecast_times 50 
 done

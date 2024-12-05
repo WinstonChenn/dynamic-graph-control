@@ -27,12 +27,14 @@ def smooth(signal, window_size=10):
 def plot_SIS_graph(G, path=None, pos=None, fig=None, ax=None):
     node_color = []
     for i in G.nodes:
-        if G.nodes[i]["state"] == "S":
+        if G.nodes[i]["state"].startswith("S"):
             node_color.append("green")
         elif G.nodes[i]["state"].startswith("I"):
             node_color.append("red")
         elif G.nodes[i]["state"].startswith("Q"):
             node_color.append("yellow")
+        else:
+            raise Exception(f"Node state: {G.nodes[i]["state"]} undefined")
     if fig is None and ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(5, 5))
     res = nx.draw_networkx(G, node_color=node_color, pos=pos, ax=ax)

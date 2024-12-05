@@ -7,7 +7,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from torch_geometric.data import Data
 from models.StaticGNN import NodeGCN, NodeSAGE, EdgeGCN, EdgeSAGE
-from generation.sis import DeterministicSIS, get_edge_index, get_node_pred_feature_matrix, \
+from generation.sis import DeterministicSIS, get_edge_index, get_X_matrix, \
     get_nodes_in_state
 from utils import eval_utils, infer_utils
 
@@ -76,53 +76,87 @@ def main(args):
         return np.stack(rewards_list)
 
     ## Evaluate random policy ###
-    num_reps = 100
-    def no_intervention_policy(G, num_int): return []
-    no_intervention_policy_cp_dir = os.path.join(policy_cp_dir, "NoIntervention")
-    os.makedirs(no_intervention_policy_cp_dir, exist_ok=True)
-    no_intervention_rewards = repeat_polciy_eval(no_intervention_policy, no_intervention_policy_cp_dir, 
-                                                 num_reps=num_reps)
+    num_reps = 10
     
+    def no_intervention_policy(G, num_int): return []
     def random_policy(G, num_int):
         unint_idx = np.array(get_nodes_in_state(G, "Q", invert=True))
         int_idx = np.random.choice(unint_idx, size=num_int)
         return int_idx
-    random_policy_cp_dir = os.path.join(policy_cp_dir, "Random")
-    os.makedirs(random_policy_cp_dir, exist_ok=True)
-    random_rewards = repeat_polciy_eval(random_policy, random_policy_cp_dir, num_reps=num_reps)
+    def risk_policy(G, num_int):
+        unint_idx = np.array(get_nodes_in_state(G, "Q", invert=True))
+        G_node_data = infer_utils.nx2pyg(G, device, pred_edge=False)
+        node_risk = node_model(G_node_data).detach().cpu().numpy().reshape(-1)
+        int_idx = unint_idx[np.argsort(node_risk[unint_idx])[::-1][:num_int]]
+        return int_idx
 
-    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-    fig, ax = plt.subplots(1, 1, figsize=(15, 5))
-    ax.plot(no_intervention_rewards.mean(axis=0), label="no intervention", color=colors[0])
-    random_lower, random_higher = eval_utils.confidence_interval(no_intervention_rewards)
-    ax.fill_between(x=range(no_intervention_rewards.shape[1]), y1=random_lower, y2=random_higher, color=colors[0], alpha=0.15)
-    
-    ax.plot(random_rewards.mean(axis=0), label="random policy", color=colors[1])
-    random_lower, random_higher = eval_utils.confidence_interval(random_rewards)
-    ax.fill_between(x=range(random_rewards.shape[1]), y1=random_lower, y2=random_higher, color=colors[1], alpha=0.15)
-
-    def forecast_policy(G, num_int, num_times=1):
+    def naive_forecast_policy(G, num_int, num_times=1, num_mc=None):
         node_scores, adj_mats = infer_utils.forecast(G, node_model, edge_model, device=device, 
-            num_times=num_times)
+            num_times=num_times+1)
         cum_node_scores = node_scores.prod(axis=0)
         unint_idx = np.array(get_nodes_in_state(G, "Q", invert=True))
         int_idx = unint_idx[np.argsort(cum_node_scores[unint_idx])[::-1][:num_int]]
         return int_idx
-    for t in range(1, 6):
-        print(f"Evaluate Naive Forecasting Policy with {t} timestep")
-        curr_forecast_policy_cp_dir = os.path.join(policy_cp_dir, f"Forecast(t={t})")
-        os.makedirs(curr_forecast_policy_cp_dir, exist_ok=True)
-        curr_forecast_rewards = repeat_polciy_eval(lambda G, num_int: forecast_policy(G, num_int, num_times=t), 
-            curr_forecast_policy_cp_dir, num_reps=num_reps, overwrite=args.overwrite)
-        ax.plot(curr_forecast_rewards.mean(axis=0), label=f"{args.model_name} naive forecast policy "+r"($\theta$="f"{t})", color=colors[t+1])
-        node_lower, node_higher = eval_utils.confidence_interval(curr_forecast_rewards)
-        ax.fill_between(x=range(curr_forecast_rewards.shape[1]), y1=node_lower, y2=node_higher, color=colors[t+1], alpha=0.15)
     
+    def attribute_forecast_policy(G, num_int, num_times=1):
+        node_scores, adj_mats = infer_utils.forecast(G, node_model, edge_model, device=device, 
+            num_times=num_times+1)
+        # for node in get_nodes_in_state(G, "Q"):
+
+        attribution = np.zeros(len(G.nodes))
+        for i in range(num_times):
+            delta = node_scores
+
+        breakpoint()
+        
+
+    policy_dict = {
+        "No Intervention": no_intervention_policy, 
+        "Random": random_policy, "Risk": risk_policy, 
+        "Forecast(t=1)": lambda G, num_int: naive_forecast_policy(G, num_int, num_times=1)
+    }
+
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+    for idx, policy in enumerate(policy_dict):
+        cp_dir = os.path.join(policy_cp_dir, policy.replace(" ", ""))
+        os.makedirs(cp_dir, exist_ok=True)
+        rewards = repeat_polciy_eval(policy_dict[policy], cp_dir, num_reps=num_reps)
+        ax.plot(rewards.mean(axis=0), label=f"{policy} Policy", color=colors[idx])
+        lower, higher = eval_utils.confidence_interval(rewards)
+        ax.fill_between(x=range(rewards.shape[1]), y1=lower, y2=higher, color=colors[idx], alpha=0.15)
+
+    
+    
+    # def monte_carlo_policy(G, num_int, num_times=1, num_sims=10):
+    #     for node in G.nodes:
+    #         G_curr = deepcopy(G)
+    #         for sim in range(num_sims):
+    #             # predict next node labels
+    #             G_node_data = infer_utils.nx2pyg(G_curr, device, pred_edge=False)
+    #             node_scores = node_model(G_node_data).detach().cpu().numpy().reshape(-1)
+    #             node_pred = 
+
+
+    # for t in range(1, 4):
+    #     print(f"Evaluate Naive Forecasting Policy with {t} timestep")
+    #     curr_forecast_policy_cp_dir = os.path.join(policy_cp_dir, f"Forecast(t={t})")
+    #     os.makedirs(curr_forecast_policy_cp_dir, exist_ok=True)
+    #     curr_forecast_rewards = repeat_polciy_eval(lambda G, num_int: forecast_policy(G, num_int, num_times=t), 
+    #         curr_forecast_policy_cp_dir, num_reps=num_reps, overwrite=args.overwrite)
+    #     ax.plot(curr_forecast_rewards.mean(axis=0), label=f"{args.model_name} naive forecast policy "+r"($\theta$="f"{t})", color=colors[t+1])
+    #     node_lower, node_higher = eval_utils.confidence_interval(curr_forecast_rewards)
+    #     ax.fill_between(x=range(curr_forecast_rewards.shape[1]), y1=node_lower, y2=node_higher, color=colors[t+1], alpha=0.15)
+    
+    
+    diff_str = f"InfThreshDiff={abs(args.train_inf_thresh-args.eval_inf_thresh):.3f}_" \
+        f"MaxDaysDiff={abs(args.train_max_inf_days-args.eval_max_inf_days):.3f}"
     ax.legend()
     ax.set_xlabel("timestep")
     ax.set_ylabel("Percent of healthy nodes")
     ax.set_ylim(0, 1)
-    ax.set_xlim(-1, random_rewards.shape[1])
+    ax.set_xlim(-1, args.num_times)
+    ax.set_title(diff_str)
     fig.tight_layout()
     fig.savefig(os.path.join(ploicy_figure_dir, f"policy_eval.png"))
     fig.savefig(os.path.join(ploicy_figure_dir, f"policy_eval.pdf"))

@@ -59,7 +59,7 @@ class DeterministicSIS():
             else: int = np.random.beta(*self.int_param)
             num_lat = np.random.randint(low=2, high=6)
             lats = np.random.normal(loc=0, scale=1, size=(num_lat, self.lat_dim))
-            self.G.add_node(i, state="S", inf=inf, sus=sus, rec=rec, int=int, lats=lats)
+            self.G.add_node(i, state=f"S-{self.t}", inf=inf, sus=sus, rec=rec, int=int, lats=lats)
             sus_list.append(sus)
         # initialize node state
         infected_idx = np.argsort(sus_list)[::-1][:round(self.num_nodes*self.init_inf_prop)]
@@ -81,7 +81,7 @@ class DeterministicSIS():
     def update_nodes(self):
         for i in self.G.nodes:
             # update susceptible nodes
-            if self.G.nodes[i]["state"] == "S":
+            if self.G.nodes[i]["state"].startswith("S"):
                 # count total number of infectiousness from infected neighbors
                 total_inf = 0
                 for j in self.G.neighbors(i):
@@ -96,7 +96,7 @@ class DeterministicSIS():
                 assert inf_time > 0
                 rec_time = (1-self.G.nodes[i]["rec"]) * self.max_inf_days
                 if inf_time >= rec_time:
-                    self.G.nodes[i]['state'] = "S"
+                    self.G.nodes[i]['state'] = f"S-{self.t}"
 
     def update_edges(self):
         self.G.clear_edges()
@@ -130,29 +130,28 @@ def get_nodes_in_state(G, state, invert=False):
         if condition: nodes.append(i)
     return nodes
 
-def get_node_pred_feature(G, i):
-    feat = [G.nodes[i]["inf"], G.nodes[i]["sus"], 
-            G.nodes[i]["rec"], G.nodes[i]["int"]]
-    if G.nodes[i]["state"].startswith("S"):
-        feat += [0]
-    else:
-        feat += [G.graph["t"] - int(G.nodes[i]["state"].split("-")[1]) + 1]
-    return feat
-
-def get_node_pred_feature_matrix(G):
+def get_X_matrix(G, time=True):
     features = []
     for i in G.nodes:
-        features.append(np.array(get_node_pred_feature(G, i)))
+        feat = [G.nodes[i]["inf"], G.nodes[i]["sus"], 
+                G.nodes[i]["rec"], G.nodes[i]["int"]]
+        # count number of previous timesteps that nodes have been in current state
+        if time:
+            feat += [G.graph["t"] - int(G.nodes[i]["state"].split("-")[1]) + 1]
+        features.append(feat)
     return np.stack(features)
 
-def get_node_pred_label_vector(G):
-    labels = []
+def get_Y_vector(G):
+    vector = []
     for i in G.nodes:
-        if G.nodes[i]["state"].startswith("S"):
-            labels.append(0)
-        else:
-            labels.append(1)
-    return np.array(labels)
+        if G.nodes[i]["state"].startswith("S"): vector.append(0)
+        elif G.nodes[i]["state"].startswith("I"): vector.append(1)
+        elif G.nodes[i]["state"].startswith("Q"): vector.append(2)
+        else: raise Exception(f"Unexpected state: {G.nodes[i]["state"]}")
+    return np.array(vector)
+
+def get_A_matrix(G):
+    return nx.adjacency_matrix(G).todense()
 
 def get_edge_index(G):
     edge_index = list(G.edges)

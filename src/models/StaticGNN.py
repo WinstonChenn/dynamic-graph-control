@@ -11,16 +11,18 @@ class MLP(nn.Module):
         self.layers = nn.ModuleList()
 
         # Add the first layer (input to first hidden layer)
-        self.layers.append(nn.Linear(input_size, hidden_sizes[0]))
-        self.layers.append(nn.ReLU())
+        if len(hidden_sizes) > 0:
+            self.layers.append(nn.Linear(input_size, hidden_sizes[0]))    
 
-        # Add the hidden layers
-        for i in range(len(hidden_sizes) - 1):
-            self.layers.append(nn.Linear(hidden_sizes[i], hidden_sizes[i + 1]))
-            self.layers.append(nn.ReLU())
+            # Add the hidden layers
+            for i in range(len(hidden_sizes) - 1):
+                self.layers.append(nn.Linear(hidden_sizes[i], hidden_sizes[i + 1]))
+                self.layers.append(nn.ReLU())
 
-        # Add the output layer
-        self.layers.append(nn.Linear(hidden_sizes[-1], output_size))
+            # Add the output layer
+            self.layers.append(nn.Linear(hidden_sizes[-1], output_size))
+        else:
+            self.layers.append(nn.Linear(input_size, output_size))
 
     def forward(self, x):
         for layer in self.layers:

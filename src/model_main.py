@@ -7,8 +7,8 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils import negative_sampling
 from utils import train_utils, viz_utils, eval_utils
-from generation.sis import DeterministicSIS, get_node_pred_feature_matrix, \
-    get_node_pred_label_vector, get_edge_index, get_all_decode_index_label
+from generation.sis import DeterministicSIS, get_X_matrix, \
+    get_Y_vector, get_edge_index, get_all_decode_index_label
 from models.StaticGNN import NodeGCN, NodeSAGE, EdgeGCN, EdgeSAGE
 
 def main(args):
@@ -51,7 +51,7 @@ def main(args):
         pos = nx.random_layout(SIS.G)
         graphs = []
         for i in tqdm(range(args.num_train+args.num_val+args.num_test+1)):
-            assert len(np.unique(get_node_pred_label_vector(SIS.G))) > 1
+            assert len(np.unique(get_Y_vector(SIS.G))) > 1
             graphs.append(SIS.G.copy())
             viz_utils.plot_SIS_graph(SIS.G, path=os.path.join(data_figure_dir, f"t={i}"), pos=pos)
             SIS.update()
@@ -67,8 +67,8 @@ def main(args):
         G_curr, G_next = graphs[i], graphs[i+1]
         # convert node model data
         edge_index = torch.from_numpy(np.array(get_edge_index(G_curr)).astype(int).T).to(device)
-        x_node = torch.from_numpy(get_node_pred_feature_matrix(G_curr).astype(np.float32)).to(device)
-        y_node = torch.from_numpy(np.array(get_node_pred_label_vector(G_next)).reshape(-1, 1).astype(np.float32)).to(device)
+        x_node = torch.from_numpy(get_X_matrix(G_curr).astype(np.float32)).to(device)
+        y_node = torch.from_numpy(np.array(get_Y_vector(G_next)).reshape(-1, 1).astype(np.float32)).to(device)
         node_data_list.append(Data(x=x_node, edge_index=edge_index, y=y_node))
         # convert edge model data
         x_edge = torch.from_numpy(np.identity(args.num_nodes).astype(np.float32)).to(device)
@@ -110,7 +110,7 @@ def main(args):
         edge_model = EdgeSAGE(num_node_features=edge_data_list[0].x.shape[1]).to(device)
     node_model_path = os.path.join(cp_dir, "node_model.pt")
     if not os.path.isfile(node_model_path) or args.overwrite_node_model:
-        node_model, node_loss_dict, node_eval_dict = train_utils.train_torch_model(node_model, lr=args.lr, l2=args.l2, 
+        node_model, node_loss_dict, node_eval_dict = train_utils.train_static_torch_model(node_model, lr=args.lr, l2=args.l2, 
             epochs=args.epochs, patience=args.patience, delta=args.delta, train_dataloader=node_train_dataloader, 
             val_dataloader=node_val_dataloader, test_dataloader=node_test_dataloader, verbose=True, edge_pred=False, 
             x_label="x", y_label="y", edge_index_label="edge_index")
@@ -122,7 +122,7 @@ def main(args):
         node_loss_dict, node_eval_dict = node_cp["loss_dict"], node_cp["eval_dict"]
     edge_model_path = os.path.join(cp_dir, "edge_model.pt")
     if not os.path.isfile(edge_model_path) or args.overwrite_edge_model:
-        edge_model, edge_loss_dict, edge_eval_dict = train_utils.train_torch_model(edge_model, lr=args.lr, l2=args.l2, 
+        edge_model, edge_loss_dict, edge_eval_dict = train_utils.train_static_torch_model(edge_model, lr=args.lr, l2=args.l2, 
             epochs=args.epochs, patience=args.patience, delta=args.delta, train_dataloader=edge_train_dataloader, 
             val_dataloader=edge_val_dataloader, test_dataloader=edge_test_dataloader, verbose=True, edge_pred=True, 
             x_label="x", y_label="y", edge_index_label="edge_index", decode_index_label="decode_index")

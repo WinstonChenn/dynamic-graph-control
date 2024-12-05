@@ -7,7 +7,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_auc_score
 from models.StaticGNN import NodeGCN, NodeSAGE, EdgeGCN, EdgeSAGE
-from generation.sis import DeterministicSIS, get_edge_index, get_node_pred_feature_matrix, \
+from generation.sis import DeterministicSIS, get_edge_index, get_X_matrix, \
     get_all_node_attribute
 from utils import eval_utils, infer_utils
 
@@ -85,13 +85,15 @@ def main(args):
         SIS.update()
     all_aurocs = np.stack(all_aurocs)
 
-    fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+    diff_str = f"InfThreshDiff={abs(args.train_inf_thresh-args.eval_inf_thresh):.3f}_" \
+        f"MaxDaysDiff={abs(args.train_max_inf_days-args.eval_max_inf_days):.3f}"
+    fig, ax = plt.subplots(1, 1, figsize=(10, 5))
     ax.plot(all_aurocs.mean(axis=0), color="tab:blue")
     auroc_lower, auroc_higher = eval_utils.confidence_interval(all_aurocs)
     ax.fill_between(x=range(all_aurocs.shape[1]), y1=auroc_lower, y2=auroc_higher, color="tab:blue", alpha=0.15)
     ax.set_xlabel("#Forecast Time Steps")
     ax.set_ylabel("Node Label AUROC")
-    ax.set_title(f"Train data={train_data_node_str}\n Eval data={eval_data_node_str}")
+    ax.set_title(diff_str)
     fig.tight_layout()
     fig.savefig(os.path.join(forecast_figure_dir, f"forecast_eval.png"))
 
