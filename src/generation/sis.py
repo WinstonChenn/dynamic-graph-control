@@ -1,4 +1,4 @@
-import sys, math, itertools, warnings
+import sys, math, itertools, random
 import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
@@ -7,58 +7,65 @@ def sigmoid(x):
   return 1 / (1 + np.exp(-x))
 
 class DeterministicSIS(): 
-    def __init__(self, n, p, gamma=0.1, d=10, tau=0.5, delta=0.5, inf_alpha=1, inf_beta=1, sus_alpha=1, sus_beta=1, 
-                 rec_alpha=1, rec_beta=1, int_alpha=1, int_beta=1):
+    def __init__(self, num_nodes, seed=42,
+        lat_dim=2, edge_thresh=0.55, int_param=None,
+        init_inf_prop=0.1, inf_thresh=0.2, max_inf_days=10,
+        inf_param=(1,1), sus_param=(1,1), rec_param=(1,1)):
         '''
-            inputs: 
-                n: number of nodes
-                p: dynamic node latent feature dimension
-                gamma: initial infection proportion
-                d: maximum possible number of infected days
-                tau: infection pressure threshold
-                delta: edge generation threshold
-                inf_alpha, inf_beta: Beta distribution parameter for infectiousnes
-                sus_alpha, sus_beta: Beta distribution parameter for susceptibilty
-                rec_alpha, rec_beta: Beta distribution parameter for recoverability
-                int_alpha, int_beta: Beta distribution parameter for intervenablness
+            basic parameters: 
+                num_nodes: number of nodes
+                seed: random seed
+            edge generation parameters:
+                lat_dim: dynamic node latent feature dimension
+                edge_thresh: edge generation threshold
+                int_param: Beta distribution parameter for intervenablness
+            state generation parameters:
+                init_inf_prop: initial infection proportion
+                inf_thresh: infection pressure threshold
+                max_inf_days: maximum possible number of infected days
+                inf_param: Beta distribution parameter for infectiousnes
+                sus_param: Beta distribution parameter for susceptibilty
+                rec_param: Beta distribution parameter for recoverability
         '''
-        self.n = n
-        self.p = p
-        self.gamma = gamma
-        self.d = d
-        self.tau = tau
-        self.delta = delta
+        self.seed = seed
+        np.random.seed(self.seed)
+        random.seed(self.seed)
+        # basic graph parameters
+        self.num_nodes = num_nodes
+        # edge generation parameters
+        self.lat_dim = lat_dim
+        self.edge_thresh = edge_thresh
+        self.int_param = int_param
+        # node state generation parameters
+        self.init_inf_prop = init_inf_prop
+        self.inf_thresh = inf_thresh
+        self.max_inf_days = max_inf_days
+        self.inf_param = inf_param
+        self.sus_param = sus_param
+        self.rec_param = rec_param
 
-        self.inf_alpha, self.inf_beta = inf_alpha, inf_beta
-        self.sus_alpha, self.sus_beta = sus_alpha, sus_beta
-        self.rec_alpha, self.rec_beta = rec_alpha, rec_beta
-        self.int_alpha, self.int_beta = int_alpha, int_beta
-
-        # time counter
+        # timestep counter
         self.t = 0
-        
         # initialize graph
         self.G = nx.Graph()
+        self.G.graph["t"] = self.t
         # initialize node features
         sus_list = []
-        for i in range(n):
-            inf = np.random.beta(self.inf_alpha, self.inf_beta)
-            sus = np.random.beta(self.sus_alpha, self.sus_beta)
-            rec = np.random.beta(self.rec_alpha, self.rec_beta)
-            int = np.random.beta(self.int_alpha, self.int_beta)
-            # x = np.random.normal(loc=0, scale=1, size=p)
-            x = np.random.uniform(low=-np.pi*2, high=np.pi*2, size=p)
-            self.G.add_node(i, state="S", inf=inf, sus=sus, rec=rec, int=int, x=x)
+        for i in range(self.num_nodes):
+            inf = np.random.beta(*self.inf_param)
+            sus = np.random.beta(*self.sus_param)
+            rec = np.random.beta(*self.rec_param)
+            if self.int_param is None: int = 0.9
+            else: int = np.random.beta(*self.int_param)
+            num_lat = np.random.randint(low=2, high=6)
+            lats = np.random.normal(loc=0, scale=1, size=(num_lat, self.lat_dim))
+            self.G.add_node(i, state=f"S-{self.t}", inf=inf, sus=sus, rec=rec, int=int, lats=lats)
             sus_list.append(sus)
         # initialize node state
-        infected_idx = np.argsort(sus_list)[::-1][:round(n*self.gamma)]
-        for i in infected_idx:
-            self.G.nodes[i]["state"] = f"I-{self.t}"
-        
+        infected_idx = np.argsort(sus_list)[::-1][:round(self.num_nodes*self.init_inf_prop)]
+        for i in infected_idx: self.G.nodes[i]["state"] = f"I-{self.t}"
         # initialize node edges
-        for i, j in itertools.combinations(self.G.nodes, 2):
-            affinity = sigmoid(self.get_edge_afinity_scores(i, j))
-            if affinity > self.delta: self.G.add_edge(i, j)
+        self.update_edges()
     
     def intervene(self, nodes):
         for i in nodes:
@@ -67,67 +74,94 @@ class DeterministicSIS():
 
     def update(self):
         self.t += 1
+        self.G.graph["t"] = self.t
+        self.update_nodes()
+        self.update_edges()
+    
+    def update_nodes(self):
         for i in self.G.nodes:
             # update susceptible nodes
-            if self.G.nodes[i]["state"] == "S":
+            if self.G.nodes[i]["state"].startswith("S"):
+                # count total number of infectiousness from infected neighbors
                 total_inf = 0
                 for j in self.G.neighbors(i):
                     if self.G.nodes[j]["state"].startswith("I"):
                         total_inf+=self.G.nodes[j]["inf"]
-                if total_inf * self.G.nodes[i]["sus"] > self.tau:
+                if total_inf * self.G.nodes[i]["sus"] > self.inf_thresh:
                     self.G.nodes[i]["state"] = f"I-{self.t}"
             # update infected nodes
             elif self.G.nodes[i]['state'].startswith("I-") or \
                  self.G.nodes[i]['state'].startswith("Q-"):
                 inf_time = self.t - int(self.G.nodes[i]['state'].split("-")[1])
                 assert inf_time > 0
-                rec_time = (1-self.G.nodes[i]["rec"]) * self.d
+                rec_time = (1-self.G.nodes[i]["rec"]) * self.max_inf_days
                 if inf_time >= rec_time:
-                    self.G.nodes[i]['state'] = "S"
-        
-        # update dynamic features
+                    self.G.nodes[i]['state'] = f"S-{self.t}"
+
+    def update_edges(self):
+        self.G.clear_edges()
         for i in self.G.nodes:
-            new_x = np.pi*2*np.sin(self.G.nodes[i]["x"])
-            self.G.nodes[i]["x"] = new_x
+            curr_lat_idx = self.t%self.G.nodes[i]["lats"].shape[0]
+            self.G.nodes[i]["curr_lat"] = self.G.nodes[i]["lats"][curr_lat_idx]
+        node_lats = get_all_node_attribute(self.G, feature_name='curr_lat')
+        node_pairs = np.stack(list(itertools.combinations(self.G.nodes, 2)))
+        aff_scores = np.sum(node_lats[node_pairs[:, 0]]*node_lats[node_pairs[:, 1]], axis=1)
+        # compute affinity score modification based on whether node is in Q state
+        node_in_q = np.array([s.startswith("Q-") for s in get_all_node_attribute(self.G, feature_name='state')]).astype(int)
+        node_int = get_all_node_attribute(self.G, feature_name='int')
+        node_aff_mod = (1-node_int*node_in_q)
+        aff_scores = sigmoid(aff_scores * node_aff_mod[node_pairs[:, 0]] * node_aff_mod[node_pairs[:, 1]])
+        self.G.graph['aff_scores'] = aff_scores
+        pos_pairs = node_pairs[aff_scores > self.edge_thresh]
+        self.G.add_edges_from(pos_pairs)
 
-        # update dynamic edges
-        for i, j in itertools.combinations(self.G.nodes, 2):
-            affinity = sigmoid(self.get_edge_afinity_scores(i, j))
-            if self.G.nodes[i]["state"].startswith("Q-"):
-                affinity *= (1-self.G.nodes[i]["int"])
-            if self.G.nodes[j]["state"].startswith("Q-"):
-                affinity *= (1-self.G.nodes[j]["int"])
-            # print(f"edge: {i}-{j}, affinity: {affinity}, {np.dot(self.G.nodes[i]["x"], self.G.nodes[j]["x"])}")
-            if self.G.has_edge(i, j):
-                if affinity <= self.delta: self.G.remove_edge(i, j)
-            elif affinity > self.delta: self.G.add_edge(i, j)
-    
+### Utils ###
+def get_all_node_attribute(G, feature_name):
+    node_features = []
+    for i in sorted(G.nodes):
+        node_features.append(G.nodes[i][feature_name])
+    return np.stack(node_features)
 
-    ### Utils ###
-    def get_rec_times(self):
-        rec_times = []
-        for i in self.G.nodes:
-            rec_times.append(self.d*(1-self.G.nodes[i]["rec"]))
-        return rec_times
-    
-    def get_edge_afinity_scores(self, i, j):
-        x_i, x_j = self.G.nodes[i]["x"], self.G.nodes[j]["x"]
-        return np.dot(x_i, x_j)/(np.linalg.norm(x_i)*np.linalg.norm(x_j))
+def get_nodes_in_state(G, state, invert=False):
+    nodes = []
+    for i in G.nodes:
+        condition = G.nodes[i]['state'].startswith(state)
+        if invert: condition = not condition
+        if condition: nodes.append(i)
+    return nodes
 
-    def get_all_affinity_scores(self):
-        affinity_scores = []
-        for i, j in itertools.combinations(self.G.nodes, 2):
-            affinity = self.get_edge_afinity_scores(i, j)
-            affinity_scores.append(affinity)
-        return affinity_scores
+def get_X_matrix(G, time=True):
+    features = []
+    for i in G.nodes:
+        feat = [G.nodes[i]["inf"], G.nodes[i]["sus"], 
+                G.nodes[i]["rec"], G.nodes[i]["int"]]
+        # count number of previous timesteps that nodes have been in current state
+        if time:
+            feat += [G.graph["t"] - int(G.nodes[i]["state"].split("-")[1]) + 1]
+        features.append(feat)
+    return np.stack(features)
 
-    def get_num_nodes_in_state(self, state):
-        count = 0
-        for i in self.G.nodes:
-            if self.G.nodes[i]['state'].startswith(state):
-                count += 1
-        return count
+def get_Y_vector(G):
+    vector = []
+    for i in G.nodes:
+        if G.nodes[i]["state"].startswith("S"): vector.append(0)
+        elif G.nodes[i]["state"].startswith("I"): vector.append(1)
+        elif G.nodes[i]["state"].startswith("Q"): vector.append(2)
+        else: raise Exception(f"Unexpected state: {G.nodes[i]["state"]}")
+    return np.array(vector)
 
+def get_A_matrix(G):
+    return nx.adjacency_matrix(G).todense()
 
+def get_edge_index(G):
+    edge_index = list(G.edges)
+    edge_index += [(e[1], e[0]) for e in edge_index] 
+    return edge_index
 
+def get_all_decode_index_label(G):
+    decode_index, labels = [], []
+    for i, j in itertools.permutations(G.nodes, 2):
+        labels.append(int(G.has_edge(i, j)))
+        decode_index.append((i, j))
+    return decode_index, labels
         
