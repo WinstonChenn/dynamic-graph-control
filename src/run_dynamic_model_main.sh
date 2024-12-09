@@ -1,5 +1,5 @@
 export CUDA_VISIBLE_DEVICES="0"
-for seed in 0 
+for seed in 1
 do
     python dynamic_model_main.py --seed $seed \
         --num_nodes 30 --lat_dim 2 --edge_thresh 0.6 \

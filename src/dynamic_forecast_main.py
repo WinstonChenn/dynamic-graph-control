@@ -68,7 +68,11 @@ def main(args):
             for i in range(args.num_forecast_times):
                 curr_SIS.update()
                 curr_states = get_all_node_attribute(curr_SIS.G, "state")
-                curr_labels = np.array([not s.startswith("S") for s in curr_states]).astype(int)
+                curr_labels = []
+                for s in curr_states:
+                    if s.startswith("S"): curr_labels.append(0)
+                    elif s.startswith("I"): curr_labels.append(1)
+                    elif s.startswith("Q"): curr_labels.append(2)
                 curr_aurocs.append(roc_auc_score(curr_labels, curr_forecast[i], labels=[0,1,2], multi_class="ovr", average="micro"))
             curr_aurocs = np.array(curr_aurocs)
             np.save(curr_forecast_path, curr_aurocs)
